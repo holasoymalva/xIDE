@@ -42,8 +42,13 @@ struct EditorWebView: UIViewRepresentable {
         webView.backgroundColor = UIColor(red: 40/255, green: 42/255, blue: 54/255, alpha: 1.0)
         webView.isOpaque = false
         
-        // Load the HTML string with a dummy URL so CDN loads work correctly
-        webView.loadHTMLString(EditorHTML.content, baseURL: URL(string: "https://cdnjs.cloudflare.com"))
+        // Load the HTML from the local app bundle
+        if let indexURL = Bundle.main.url(forResource: "Editor", withExtension: "html", subdirectory: "monaco-editor") {
+            webView.loadFileURL(indexURL, allowingReadAccessTo: indexURL.deletingLastPathComponent())
+        } else {
+            // Fallback (should not happen if bundled)
+            webView.loadHTMLString("<h3>Error: Monaco Editor HTML template not found in bundle.</h3>", baseURL: nil)
+        }
         
         return webView
     }
