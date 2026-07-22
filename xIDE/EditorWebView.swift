@@ -169,7 +169,7 @@ struct EditorWebView: UIViewRepresentable {
         
         webView.evaluateJavaScript(jsCommand) { _, error in
             if let error = error {
-                context.parent.onConsoleError("Execution trigger error: \(error.localizedDescription)")
+                context.coordinator.parent.onConsoleError("Execution trigger error: \(error.localizedDescription)")
             }
         }
     }
