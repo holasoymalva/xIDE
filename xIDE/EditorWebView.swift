@@ -42,19 +42,31 @@ struct EditorWebView: UIViewRepresentable {
         webView.backgroundColor = UIColor(red: 40/255, green: 42/255, blue: 54/255, alpha: 1.0)
         webView.isOpaque = false
         
-        // Load Editor.html from the custom monaco-editor bundle (forces directory structure preservation in Xcode build)
-        var editorURL: URL? = nil
+        // Try to locate Editor.html across all possible bundle paths
+        var resolvedURL: URL? = nil
+        var readAccessURL: URL = Bundle.main.bundleURL
+        
         if let bundleURL = Bundle.main.url(forResource: "monaco-editor", withExtension: "bundle"),
-           let monacoBundle = Bundle(url: bundleURL) {
-            editorURL = monacoBundle.url(forResource: "Editor", withExtension: "html")
+           let monacoBundle = Bundle(url: bundleURL),
+           let htmlURL = monacoBundle.url(forResource: "Editor", withExtension: "html") {
+            resolvedURL = htmlURL
+            readAccessURL = bundleURL
+        } else if let htmlURL = Bundle.main.url(forResource: "Editor", withExtension: "html", subdirectory: "monaco-editor.bundle") {
+            resolvedURL = htmlURL
+            readAccessURL = htmlURL.deletingLastPathComponent()
+        } else if let htmlURL = Bundle.main.url(forResource: "Editor", withExtension: "html", subdirectory: "monaco-editor") {
+            resolvedURL = htmlURL
+            readAccessURL = htmlURL.deletingLastPathComponent()
+        } else if let htmlURL = Bundle.main.url(forResource: "Editor", withExtension: "html") {
+            resolvedURL = htmlURL
+            readAccessURL = Bundle.main.bundleURL
         }
         
-        if let indexURL = editorURL,
-           let bundleURL = Bundle.main.url(forResource: "monaco-editor", withExtension: "bundle") {
-            webView.loadFileURL(indexURL, allowingReadAccessTo: bundleURL)
+        if let indexURL = resolvedURL {
+            webView.loadFileURL(indexURL, allowingReadAccessTo: readAccessURL)
         } else {
-            // Fallback (e.g. if the bundle hasn't been copied or clean is needed)
-            webView.loadHTMLString("<h3>Error: Monaco Editor Bundle (monaco-editor.bundle) not found. Please clean the build folder in Xcode (Product -> Clean Build Folder) and compile again.</h3>", baseURL: nil)
+            // Fail-safe Fallback: Load embedded EditorHTML string directly
+            webView.loadHTMLString(EditorHTML.content, baseURL: URL(string: "https://cdnjs.cloudflare.com"))
         }
         
         return webView
