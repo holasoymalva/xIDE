@@ -42,20 +42,19 @@ struct EditorWebView: UIViewRepresentable {
         webView.backgroundColor = UIColor(red: 40/255, green: 42/255, blue: 54/255, alpha: 1.0)
         webView.isOpaque = false
         
-        // Find Editor.html in the bundle (handles both folder references and flattened groups)
-        let editorURL: URL?
-        if let path = Bundle.main.url(forResource: "Editor", withExtension: "html", subdirectory: "monaco-editor") {
-            editorURL = path
-        } else if let path = Bundle.main.url(forResource: "Editor", withExtension: "html") {
-            editorURL = path
-        } else {
-            editorURL = nil
+        // Load Editor.html from the custom monaco-editor bundle (forces directory structure preservation in Xcode build)
+        var editorURL: URL? = nil
+        if let bundleURL = Bundle.main.url(forResource: "monaco-editor", withExtension: "bundle"),
+           let monacoBundle = Bundle(url: bundleURL) {
+            editorURL = monacoBundle.url(forResource: "Editor", withExtension: "html")
         }
         
-        if let indexURL = editorURL {
-            webView.loadFileURL(indexURL, allowingReadAccessTo: Bundle.main.bundleURL)
+        if let indexURL = editorURL,
+           let bundleURL = Bundle.main.url(forResource: "monaco-editor", withExtension: "bundle") {
+            webView.loadFileURL(indexURL, allowingReadAccessTo: bundleURL)
         } else {
-            webView.loadHTMLString("<h3>Error: Monaco Editor HTML template (Editor.html) not found in app bundle.</h3>", baseURL: nil)
+            // Fallback (e.g. if the bundle hasn't been copied or clean is needed)
+            webView.loadHTMLString("<h3>Error: Monaco Editor Bundle (monaco-editor.bundle) not found. Please clean the build folder in Xcode (Product -> Clean Build Folder) and compile again.</h3>", baseURL: nil)
         }
         
         return webView
