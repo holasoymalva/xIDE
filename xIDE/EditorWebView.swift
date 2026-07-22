@@ -44,26 +44,22 @@ struct EditorWebView: UIViewRepresentable {
         
         // Try to locate Editor.html across all possible bundle paths
         var resolvedURL: URL? = nil
-        var readAccessURL: URL = Bundle.main.bundleURL
+        let appContainerURL = Bundle.main.bundleURL.deletingLastPathComponent()
         
         if let bundleURL = Bundle.main.url(forResource: "monaco-editor", withExtension: "bundle"),
            let monacoBundle = Bundle(url: bundleURL),
            let htmlURL = monacoBundle.url(forResource: "Editor", withExtension: "html") {
             resolvedURL = htmlURL
-            readAccessURL = bundleURL
         } else if let htmlURL = Bundle.main.url(forResource: "Editor", withExtension: "html", subdirectory: "monaco-editor.bundle") {
             resolvedURL = htmlURL
-            readAccessURL = htmlURL.deletingLastPathComponent()
         } else if let htmlURL = Bundle.main.url(forResource: "Editor", withExtension: "html", subdirectory: "monaco-editor") {
             resolvedURL = htmlURL
-            readAccessURL = htmlURL.deletingLastPathComponent()
         } else if let htmlURL = Bundle.main.url(forResource: "Editor", withExtension: "html") {
             resolvedURL = htmlURL
-            readAccessURL = Bundle.main.bundleURL
         }
         
         if let indexURL = resolvedURL {
-            webView.loadFileURL(indexURL, allowingReadAccessTo: readAccessURL)
+            webView.loadFileURL(indexURL, allowingReadAccessTo: appContainerURL)
         } else {
             // Fail-safe Fallback: Load embedded EditorHTML string directly
             webView.loadHTMLString(EditorHTML.content, baseURL: URL(string: "https://cdnjs.cloudflare.com"))
