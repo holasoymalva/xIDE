@@ -172,6 +172,35 @@ class IDEViewModel: ObservableObject {
         }
     }
     
+    // Drag & Drop File Relocation
+    func moveItem(from sourceURL: URL, toDirectory targetDirectoryURL: URL) {
+        let fileName = sourceURL.lastPathComponent
+        let destinationURL = targetDirectoryURL.appendingPathComponent(fileName)
+        
+        // Safety check 1: Same location check
+        guard sourceURL != destinationURL else { return }
+        
+        // Safety check 2: Prevent moving folder into itself or its subdirectories
+        if targetDirectoryURL.path.hasPrefix(sourceURL.path + "/") || targetDirectoryURL.path == sourceURL.path {
+            appendConsoleError("Cannot move a folder inside itself or its own subdirectories.")
+            return
+        }
+        
+        do {
+            try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
+            
+            // If the moved file was the currently open file, update its references
+            if openFile?.url == sourceURL {
+                openFile = FileItem(url: destinationURL, isFolder: false, children: nil)
+            }
+            
+            loadWorkspace()
+            appendConsoleLog("Moved \(fileName) to \(targetDirectoryURL.lastPathComponent)")
+        } catch {
+            appendConsoleError("Failed to move item: \(error.localizedDescription)")
+        }
+    }
+    
     // Console / Terminal output helpers
     func appendConsoleLog(_ msg: String) {
         DispatchQueue.main.async {
@@ -204,40 +233,13 @@ class IDEViewModel: ObservableObject {
         
         terminalInput = ""
     }
-    
-    // Drag & Drop File Relocation
-    func moveItem(from sourceURL: URL, toDirectory targetDirectoryURL: URL) {
-        let fileName = sourceURL.lastPathComponent
-        let destinationURL = targetDirectoryURL.appendingPathComponent(fileName)
-        
-        // Safety check 1: Same location check
-        guard sourceURL != destinationURL else { return }
-        
-        // Safety check 2: Prevent moving folder into itself or its subdirectories
-        if targetDirectoryURL.path.hasPrefix(sourceURL.path + "/") || targetDirectoryURL.path == sourceURL.path {
-            appendConsoleError("Cannot move a folder inside itself or its own subdirectories.")
-            return
-        }
-        
-        do {
-            try FileManager.default.moveItem(at: sourceURL, to: destinationURL)
-            
-            // If the moved file was the currently open file, update its references
-            if openFile?.url == sourceURL {
-                openFile = FileItem(url: destinationURL, isFolder: false, children: nil)
-            }
-            
-            loadWorkspace()
-            appendConsoleLog("Moved \(fileName) to \(targetDirectoryURL.lastPathComponent)")
-        } catch {
-            appendConsoleError("Failed to move item: \(error.localizedDescription)")
-        }
-    }
 }
 
 // MARK: - Main Application Content View
 struct ContentView: View {
     @StateObject private var viewModel = IDEViewModel()
+    @Environment(\.horizontalSizeClass) var horizontalSizeClass
+    @State private var showMobileEditor: Bool = false
     
     init() {
         // Customize SwiftUI Lists and Views to look premium and match Dracula theme
@@ -256,268 +258,43 @@ struct ContentView: View {
     }
     
     var body: some View {
-        NavigationSplitView {
-            // MARK: Sidebar / Workspace Tree View
-            VStack(spacing: 0) {
-                // Sidebar Header containing the Project switcher Menu
-                HStack {
-                    Menu {
-                        Section(header: Text("Select Project").foregroundColor(Dracula.pink)) {
-                            ForEach(viewModel.projects, id: \.self) { proj in
-                                Button {
-                                    viewModel.switchProject(to: proj)
-                                } label: {
-                                    HStack {
-                                        Text(proj)
-                                        if proj == viewModel.activeProject {
-                                            Image(systemName: "checkmark")
-                                        }
-                                    }
-                                }
+        Group {
+            if horizontalSizeClass == .compact {
+                // MARK: iPhone Layout (NavigationStack pushing to Editor)
+                NavigationStack {
+                    SidebarView(viewModel: viewModel)
+                        .navigationDestination(isPresented: $showMobileEditor) {
+                            if let file = viewModel.openFile {
+                                EditorDetailView(file: file, viewModel: viewModel)
                             }
                         }
+                }
+                .accentColor(Dracula.pink)
+                .onChange(of: viewModel.openFile) { newFile in
+                    if newFile != nil {
+                        showMobileEditor = true
+                    } else {
+                        showMobileEditor = false
+                    }
+                }
+            } else {
+                // MARK: iPad / Mac Layout (NavigationSplitView side-by-side)
+                NavigationSplitView {
+                    SidebarView(viewModel: viewModel)
+                } detail: {
+                    ZStack {
+                        Dracula.background
+                            .ignoresSafeArea()
                         
-                        Section {
-                            Button {
-                                viewModel.dialogTextName = ""
-                                viewModel.showCreateProjectDialog = true
-                            } label: {
-                                Label("Create New Project...", systemImage: "plus.rectangle.on.folder")
-                            }
-                        }
-                    } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: "shippingbox.fill")
-                                .font(.system(size: 16))
-                                .foregroundColor(Dracula.purple)
-                            
-                            Text(viewModel.activeProject)
-                                .font(.headline)
-                                .fontWeight(.bold)
-                                .foregroundColor(Dracula.foreground)
-                                .lineLimit(1)
-                            
-                            Image(systemName: "chevron.up.chevron.down")
-                                .font(.system(size: 11, weight: .bold))
-                                .foregroundColor(Dracula.comment)
+                        if let file = viewModel.openFile {
+                            EditorDetailView(file: file, viewModel: viewModel)
+                        } else {
+                            WelcomeView(viewModel: viewModel)
                         }
                     }
-                    
-                    Spacer()
-                    
-                    Button {
-                        viewModel.loadWorkspace()
-                    } label: {
-                        Image(systemName: "arrow.clockwise")
-                            .font(.system(size: 14, weight: .bold))
-                            .foregroundColor(Dracula.cyan)
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 14)
-                .background(Dracula.darkBackground)
-                
-                Divider()
-                    .background(Dracula.border)
-                
-                // File Explorer List
-                List {
-                    ForEach(viewModel.workspaceFiles) { item in
-                        FileRowView(item: item, viewModel: viewModel, depth: 0)
-                            .listRowBackground(Color.clear)
-                            .listRowSeparator(.hidden)
-                            .listRowInsets(EdgeInsets(top: 2, leading: 10, bottom: 2, trailing: 10))
-                    }
-                }
-                .listStyle(.plain)
-                .background(Dracula.darkBackground)
-                .onDrop(of: [.text], isTargeted: nil) { providers in
-                    guard let provider = providers.first else { return false }
-                    provider.loadObject(ofClass: NSString.self) { (string, error) in
-                        if let urlString = string as? String, let sourceURL = URL(string: urlString) {
-                            let targetDirectoryURL = FileManager.default.projectURL(named: viewModel.activeProject)
-                            DispatchQueue.main.async {
-                                viewModel.moveItem(from: sourceURL, toDirectory: targetDirectoryURL)
-                            }
-                        }
-                    }
-                    return true
-                }
-                
-                Divider()
-                    .background(Dracula.border)
-                
-                // Sidebar Footer Controls
-                HStack(spacing: 20) {
-                    Button {
-                        viewModel.activeFolderTarget = nil
-                        viewModel.dialogTextName = ""
-                        viewModel.showCreateFileDialog = true
-                    } label: {
-                        Label("New File", systemImage: "doc.badge.plus")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundColor(Dracula.green)
-                    }
-                    
-                    Spacer()
-                    
-                    Button {
-                        viewModel.activeFolderTarget = nil
-                        viewModel.dialogTextName = ""
-                        viewModel.showCreateFolderDialog = true
-                    } label: {
-                        Label("New Folder", systemImage: "folder.badge.plus")
-                            .font(.caption)
-                            .fontWeight(.medium)
-                            .foregroundColor(Dracula.purple)
-                    }
-                    
-                    Spacer()
-                    
-                    Button {
-                        viewModel.showSettingsSheet = true
-                    } label: {
-                        Image(systemName: "gearshape")
-                            .font(.body)
-                            .foregroundColor(Dracula.cyan)
-                    }
-                }
-                .padding(.horizontal, 20)
-                .padding(.vertical, 12)
-                .background(Dracula.darkBackground)
-            }
-            .navigationBarHidden(true)
-            .background(Dracula.darkBackground)
-        } detail: {
-            // MARK: Detail View (Editor / Runner UI)
-            ZStack {
-                Dracula.background
-                    .ignoresSafeArea()
-                
-                if let file = viewModel.openFile {
-                    VStack(spacing: 0) {
-                        // Custom Editor Tab bar
-                        HStack {
-                            Image(systemName: file.iconName)
-                                .foregroundColor(file.iconColor)
-                            Text(file.name)
-                                .font(.subheadline)
-                                .fontWeight(.semibold)
-                                .foregroundColor(Dracula.foreground)
-                            
-                            Button {
-                                viewModel.closeCurrentFile()
-                            } label: {
-                                Image(systemName: "xmark.circle.fill")
-                                    .foregroundColor(Dracula.comment)
-                                    .font(.system(size: 14))
-                            }
-                            .padding(.leading, 4)
-                            
-                            Spacer()
-                            
-                            // Editor Toolbar Actions
-                            HStack(spacing: 16) {
-                                // "Run" Button
-                                Button {
-                                    viewModel.isConsoleVisible = true
-                                    viewModel.runTrigger = UUID()
-                                } label: {
-                                    HStack(spacing: 4) {
-                                        Image(systemName: "play.fill")
-                                        Text("Run")
-                                            .font(.caption)
-                                            .fontWeight(.bold)
-                                    }
-                                    .padding(.horizontal, 10)
-                                    .padding(.vertical, 5)
-                                    .background(Dracula.green.opacity(0.15))
-                                    .foregroundColor(Dracula.green)
-                                    .cornerRadius(6)
-                                }
-                                
-                                // "Toggle Console" Button
-                                Button {
-                                    withAnimation {
-                                        viewModel.isConsoleVisible.toggle()
-                                    }
-                                } label: {
-                                    Image(systemName: "terminal")
-                                        .font(.body)
-                                        .foregroundColor(viewModel.isConsoleVisible ? Dracula.pink : Dracula.foreground)
-                                }
-                                
-                                // "Web Preview" Toggle
-                                if file.fileExtension == "html" || file.fileExtension == "htm" {
-                                    Button {
-                                        viewModel.isWebPreviewVisible.toggle()
-                                    } label: {
-                                        Image(systemName: "safari")
-                                            .font(.body)
-                                            .foregroundColor(viewModel.isWebPreviewVisible ? Dracula.cyan : Dracula.foreground)
-                                    }
-                                }
-                            }
-                        }
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 10)
-                        .background(Dracula.darkBackground)
-                        
-                        Divider()
-                            .background(Dracula.border)
-                        
-                        // Editor and Console Panels Layout
-                        HSplitView(isConsoleVisible: viewModel.isConsoleVisible, isWebPreviewVisible: viewModel.isWebPreviewVisible, fileURL: file.url) {
-                            // Left Area: Monaco Editor WebView
-                            ZStack {
-                                EditorWebView(
-                                    fileURL: file.url,
-                                    content: viewModel.openFileContent,
-                                    fontSize: viewModel.fontSize,
-                                    onTextChanged: { newText in
-                                        viewModel.saveCurrentFile(content: newText)
-                                    },
-                                    onConsoleLog: { log in
-                                        viewModel.appendConsoleLog(log)
-                                    },
-                                    onConsoleError: { err in
-                                        viewModel.appendConsoleError(err)
-                                    },
-                                    onConsoleClear: {
-                                        viewModel.clearConsole()
-                                    },
-                                    onEditorReady: {
-                                        viewModel.isEditorLoading = false
-                                    },
-                                    runTrigger: $viewModel.runTrigger
-                                )
-                                
-                                if viewModel.isEditorLoading {
-                                    ProgressView("Loading Editor Assets...")
-                                        .foregroundColor(Dracula.foreground)
-                                        .tint(Dracula.purple)
-                                        .padding()
-                                        .background(Dracula.darkBackground.opacity(0.85))
-                                        .cornerRadius(8)
-                                }
-                            }
-                        } consoleContent: {
-                            // Bottom Console Panel (styled as Terminal)
-                            ConsoleView(viewModel: viewModel)
-                        } previewContent: {
-                            // Right Panel: HTML live web preview
-                            WebPreviewView(fileURL: file.url)
-                        }
-                    }
-                } else {
-                    // Welcome View
-                    WelcomeView(viewModel: viewModel)
                 }
             }
-            .navigationBarTitleDisplayMode(.inline)
         }
-        
         // MARK: - Dialogs & Sheets (Dracula Themed Alerts)
         .sheet(isPresented: $viewModel.showSettingsSheet) {
             SettingsView(viewModel: viewModel)
@@ -577,6 +354,270 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ShowWebPreview"))) { _ in
             viewModel.isWebPreviewVisible = true
         }
+    }
+}
+
+// MARK: - Sidebar View Component
+struct SidebarView: View {
+    @ObservedObject var viewModel: IDEViewModel
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Sidebar Header containing the Project switcher Menu
+            HStack {
+                Menu {
+                    Section(header: Text("Select Project").foregroundColor(Dracula.pink)) {
+                        ForEach(viewModel.projects, id: \.self) { proj in
+                            Button {
+                                viewModel.switchProject(to: proj)
+                            } label: {
+                                HStack {
+                                    Text(proj)
+                                    if proj == viewModel.activeProject {
+                                        Image(systemName: "checkmark")
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    
+                    Section {
+                        Button {
+                            viewModel.dialogTextName = ""
+                            viewModel.showCreateProjectDialog = true
+                        } label: {
+                            Label("Create New Project...", systemImage: "plus.rectangle.on.folder")
+                        }
+                    }
+                } label: {
+                    HStack(spacing: 8) {
+                        Image(systemName: "shippingbox.fill")
+                            .font(.system(size: 16))
+                            .foregroundColor(Dracula.purple)
+                        
+                        Text(viewModel.activeProject)
+                            .font(.headline)
+                            .fontWeight(.bold)
+                            .foregroundColor(Dracula.foreground)
+                            .lineLimit(1)
+                        
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: 11, weight: .bold))
+                            .foregroundColor(Dracula.comment)
+                    }
+                }
+                
+                Spacer()
+                
+                Button {
+                    viewModel.loadWorkspace()
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundColor(Dracula.cyan)
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 14)
+            .background(Dracula.darkBackground)
+            
+            Divider()
+                .background(Dracula.border)
+            
+            // File Explorer List
+            List {
+                ForEach(viewModel.workspaceFiles) { item in
+                    FileRowView(item: item, viewModel: viewModel, depth: 0)
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 2, leading: 10, bottom: 2, trailing: 10))
+                }
+            }
+            .listStyle(.plain)
+            .background(Dracula.darkBackground)
+            .onDrop(of: [.text], isTargeted: nil) { providers in
+                guard let provider = providers.first else { return false }
+                provider.loadObject(ofClass: NSString.self) { (string, error) in
+                    if let urlString = string as? String, let sourceURL = URL(string: urlString) {
+                        let targetDirectoryURL = FileManager.default.projectURL(named: viewModel.activeProject)
+                        DispatchQueue.main.async {
+                            viewModel.moveItem(from: sourceURL, toDirectory: targetDirectoryURL)
+                        }
+                    }
+                }
+                return true
+            }
+            
+            Divider()
+                .background(Dracula.border)
+            
+            // Sidebar Footer Controls
+            HStack(spacing: 20) {
+                Button {
+                    viewModel.activeFolderTarget = nil
+                    viewModel.dialogTextName = ""
+                    viewModel.showCreateFileDialog = true
+                } label: {
+                    Label("New File", systemImage: "doc.badge.plus")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(Dracula.green)
+                }
+                
+                Spacer()
+                
+                Button {
+                    viewModel.activeFolderTarget = nil
+                    viewModel.dialogTextName = ""
+                    viewModel.showCreateFolderDialog = true
+                } label: {
+                    Label("New Folder", systemImage: "folder.badge.plus")
+                        .font(.caption)
+                        .fontWeight(.medium)
+                        .foregroundColor(Dracula.purple)
+                }
+                
+                Spacer()
+                
+                Button {
+                    viewModel.showSettingsSheet = true
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.body)
+                        .foregroundColor(Dracula.cyan)
+                }
+            }
+            .padding(.horizontal, 20)
+            .padding(.vertical, 12)
+            .background(Dracula.darkBackground)
+        }
+        .navigationBarHidden(true)
+        .background(Dracula.darkBackground)
+    }
+}
+
+// MARK: - Editor Detail View Component
+struct EditorDetailView: View {
+    let file: FileItem
+    @ObservedObject var viewModel: IDEViewModel
+    
+    var body: some View {
+        VStack(spacing: 0) {
+            // Custom Editor Tab bar
+            HStack {
+                Image(systemName: file.iconName)
+                    .foregroundColor(file.iconColor)
+                Text(file.name)
+                    .font(.subheadline)
+                    .fontWeight(.semibold)
+                    .foregroundColor(Dracula.foreground)
+                
+                Button {
+                    viewModel.closeCurrentFile()
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundColor(Dracula.comment)
+                        .font(.system(size: 14))
+                }
+                .padding(.leading, 4)
+                
+                Spacer()
+                
+                // Editor Toolbar Actions
+                HStack(spacing: 16) {
+                    // "Run" Button
+                    Button {
+                        viewModel.isConsoleVisible = true
+                        viewModel.runTrigger = UUID()
+                    } label: {
+                        HStack(spacing: 4) {
+                            Image(systemName: "play.fill")
+                            Text("Run")
+                                .font(.caption)
+                                .fontWeight(.bold)
+                        }
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 5)
+                        .background(Dracula.green.opacity(0.15))
+                        .foregroundColor(Dracula.green)
+                        .cornerRadius(6)
+                    }
+                    
+                    // "Toggle Console" Button
+                    Button {
+                        withAnimation {
+                            viewModel.isConsoleVisible.toggle()
+                        }
+                    } label: {
+                        Image(systemName: "terminal")
+                            .font(.body)
+                            .foregroundColor(viewModel.isConsoleVisible ? Dracula.pink : Dracula.foreground)
+                    }
+                    
+                    // "Web Preview" Toggle
+                    if file.fileExtension == "html" || file.fileExtension == "htm" {
+                        Button {
+                            viewModel.isWebPreviewVisible.toggle()
+                        } label: {
+                            Image(systemName: "safari")
+                                .font(.body)
+                                .foregroundColor(viewModel.isWebPreviewVisible ? Dracula.cyan : Dracula.foreground)
+                        }
+                    }
+                }
+            }
+            .padding(.horizontal, 16)
+            .padding(.vertical, 10)
+            .background(Dracula.darkBackground)
+            
+            Divider()
+                .background(Dracula.border)
+            
+            // Editor and Console Panels Layout
+            HSplitView(isConsoleVisible: viewModel.isConsoleVisible, isWebPreviewVisible: viewModel.isWebPreviewVisible, fileURL: file.url) {
+                // Left Area: Monaco Editor WebView
+                ZStack {
+                    EditorWebView(
+                        fileURL: file.url,
+                        content: viewModel.openFileContent,
+                        fontSize: viewModel.fontSize,
+                        onTextChanged: { newText in
+                            viewModel.saveCurrentFile(content: newText)
+                        },
+                        onConsoleLog: { log in
+                            viewModel.appendConsoleLog(log)
+                        },
+                        onConsoleError: { err in
+                            viewModel.appendConsoleError(err)
+                        },
+                        onConsoleClear: {
+                            viewModel.clearConsole()
+                        },
+                        onEditorReady: {
+                            viewModel.isEditorLoading = false
+                        },
+                        runTrigger: $viewModel.runTrigger
+                    )
+                    
+                    if viewModel.isEditorLoading {
+                        ProgressView("Loading Editor Assets...")
+                            .foregroundColor(Dracula.foreground)
+                            .tint(Dracula.purple)
+                            .padding()
+                            .background(Dracula.darkBackground.opacity(0.85))
+                            .cornerRadius(8)
+                    }
+                }
+            } consoleContent: {
+                // Bottom Console Panel (styled as Terminal)
+                ConsoleView(viewModel: viewModel)
+            } previewContent: {
+                // Right Panel: HTML live web preview
+                WebPreviewView(fileURL: file.url)
+            }
+        }
+        .background(Dracula.background)
+        .navigationBarTitleDisplayMode(.inline)
     }
 }
 
