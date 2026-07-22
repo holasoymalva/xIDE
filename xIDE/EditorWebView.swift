@@ -161,6 +161,17 @@ struct EditorWebView: UIViewRepresentable {
             switch type {
             case "ready":
                 parent.onEditorReady()
+                // Force open the selected file since Monaco was not initialized when updateUIView first fired
+                if let fileURL = parent.fileURL {
+                    let name = fileURL.lastPathComponent
+                    let fileExtension = fileURL.pathExtension.lowercased()
+                    let args = [name, parent.content, fileExtension]
+                    if let data = try? JSONSerialization.data(withJSONObject: args, options: []),
+                       let jsonArgsString = String(data: data, encoding: .utf8) {
+                        let js = "if (window.openFile) { window.openFile.apply(null, \(jsonArgsString)); }"
+                        webView?.evaluateJavaScript(js, completionHandler: nil)
+                    }
+                }
                 
             case "textChanged":
                 if let content = body["content"] as? String {
