@@ -158,7 +158,7 @@ struct EditorWebView: UIViewRepresentable {
         case "js":
             jsCommand = "window.runJavascriptCode(\"\(escapedContent)\")"
         case "py":
-            jsCommand = "window.runPythonCode(\"\(escapedContent)\")"
+            jsCommand = "window.runPythonCode(\"\(escapedContent)\").catch(function(err){ sendMessageToNative({type: 'consoleError', message: 'Execution Error: ' + err.message}); });"
         case "java":
             jsCommand = "window.runJavaCode()"
         default:

@@ -10,7 +10,6 @@ struct EditorHTML {
     <title>xIDE Monaco Editor</title>
     <!-- Load RequireJS and Monaco Editor from CDN fallback -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/require.js/2.3.6/require.min.js"></script>
-    <script src="https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js"></script>
     <style>
         html, body {
             margin: 0;
@@ -193,6 +192,35 @@ struct EditorHTML {
             editor.updateOptions({ fontSize: size });
         };
 
+        // Helper to load Pyodide script dynamically bypassing AMD/RequireJS conflicts
+        function loadPyodideDynamically() {
+            if (window.loadPyodide) return Promise.resolve();
+            
+            return new Promise(function(resolve, reject) {
+                sendMessageToNative({ type: 'consoleLog', message: 'Downloading Pyodide runtime from CDN...' });
+                var script = document.createElement('script');
+                script.src = "https://cdn.jsdelivr.net/pyodide/v0.23.4/full/pyodide.js";
+                
+                // Temporarily disable AMD define so Pyodide attaches to window.loadPyodide
+                var oldDefine = window.define;
+                window.define = undefined;
+
+                script.onload = function() {
+                    window.define = oldDefine;
+                    if (typeof loadPyodide !== 'undefined') {
+                        resolve();
+                    } else {
+                        reject(new Error("Failed to initialize loadPyodide global variable."));
+                    }
+                };
+                script.onerror = function() {
+                    window.define = oldDefine;
+                    reject(new Error("Network Error: Failed to fetch Python WASM runtime from CDN. Make sure you are online."));
+                };
+                document.head.appendChild(script);
+            });
+        }
+
         // --- RUNNING CODE: Python & Javascript runners ---
 
         // Javascript execution runner
@@ -225,10 +253,10 @@ struct EditorHTML {
             try {
                 var result = window.eval(code);
                 if (result !== undefined) {
-                    sendMessageToNative({ type: 'consoleLog', message: '\\nResult: ' + result });
+                    sendMessageToNative({ type: 'consoleLog', message: '\nResult: ' + result });
                 }
             } catch (error) {
-                sendMessageToNative({ type: 'consoleError', message: '\\nRuntime Error: ' + error.message });
+                sendMessageToNative({ type: 'consoleError', message: '\nRuntime Error: ' + error.message });
             } finally {
                 // Restore original console
                 console.log = originalLog;
@@ -241,9 +269,11 @@ struct EditorHTML {
         // Python execution runner using Pyodide
         window.runPythonCode = async function(code) {
             sendMessageToNative({ type: 'consoleClear' });
-            sendMessageToNative({ type: 'consoleLog', message: 'Initializing Pyodide Python Engine...' });
             
             try {
+                await loadPyodideDynamically();
+                
+                sendMessageToNative({ type: 'consoleLog', message: 'Initializing Pyodide Python Engine...' });
                 if (!pyodideInstance) {
                     pyodideInstance = await loadPyodide({
                         indexURL: "https://cdn.jsdelivr.net/pyodide/v0.23.4/full/"
@@ -271,7 +301,7 @@ struct EditorHTML {
                 sendMessageToNative({ type: 'consoleLog', message: '----------------------------------------' });
                 sendMessageToNative({ type: 'consoleLog', message: 'Execution Finished.' });
             } catch (error) {
-                sendMessageToNative({ type: 'consoleError', message: '\\nPython Exception: ' + error.message });
+                sendMessageToNative({ type: 'consoleError', message: '\nPython Exception: ' + error.message });
                 sendMessageToNative({ type: 'consoleLog', message: '----------------------------------------' });
             }
         };
@@ -281,13 +311,15 @@ struct EditorHTML {
             sendMessageToNative({ type: 'consoleClear' });
             sendMessageToNative({ type: 'consoleLog', message: 'Compiling Java...' });
             sendMessageToNative({ type: 'consoleError', message: 'Error: Local Java Compilation is restricted on iOS/iPadOS due to operating system sandbox limitations (no native JVM/JIT support).' });
-            sendMessageToNative({ type: 'consoleLog', message: '\\nxIDE Pro-Tip: You can use our editor for complete Java syntax validation, but execution requires a remote developer workspace (like VS Code Codespaces or Gitpod).' });
+            sendMessageToNative({ type: 'consoleLog', message: '\nxIDE Pro-Tip: You can use our editor for complete Java syntax validation, but execution requires a remote developer workspace (like VS Code Codespaces or Gitpod).' });
         };
 
         // Evaluate custom commands in the interactive console REPL
         window.evaluateTerminalCommand = async function(command, extension) {
             if (extension === 'py') {
                 try {
+                    await loadPyodideDynamically();
+                    
                     if (!pyodideInstance) {
                         sendMessageToNative({ type: 'consoleLog', message: 'Initializing Pyodide Python Engine...' });
                         pyodideInstance = await loadPyodide({

@@ -67,6 +67,12 @@ class IDEViewModel: ObservableObject {
             try? FileManager.default.writeFileContent(at: currentFile.url, content: openFileContent)
         }
         
+        // Auto-hide web preview for non-HTML files
+        let ext = item.url.pathExtension.lowercased()
+        if ext != "html" && ext != "htm" {
+            isWebPreviewVisible = false
+        }
+        
         // Load new file
         if let content = FileManager.default.readFileContent(at: item.url) {
             openFileContent = content
@@ -80,6 +86,7 @@ class IDEViewModel: ObservableObject {
         }
         openFile = nil
         openFileContent = ""
+        isWebPreviewVisible = false
     }
     
     func saveCurrentFile(content: String) {
@@ -92,6 +99,7 @@ class IDEViewModel: ObservableObject {
     // Project management actions
     func switchProject(to name: String) {
         closeCurrentFile()
+        isWebPreviewVisible = false
         activeProject = name
         loadWorkspace()
         appendConsoleLog("Opened project: \(name)")
@@ -204,13 +212,21 @@ class IDEViewModel: ObservableObject {
     // Console / Terminal output helpers
     func appendConsoleLog(_ msg: String) {
         DispatchQueue.main.async {
-            self.consoleOutput.append(ConsoleLine(text: msg, isError: false))
+            let cleanMsg = msg.replacingOccurrences(of: "\\n", with: "\n")
+            let lines = cleanMsg.components(separatedBy: .newlines)
+            for line in lines {
+                self.consoleOutput.append(ConsoleLine(text: line, isError: false))
+            }
         }
     }
     
     func appendConsoleError(_ msg: String) {
         DispatchQueue.main.async {
-            self.consoleOutput.append(ConsoleLine(text: msg, isError: true))
+            let cleanMsg = msg.replacingOccurrences(of: "\\n", with: "\n")
+            let lines = cleanMsg.components(separatedBy: .newlines)
+            for line in lines {
+                self.consoleOutput.append(ConsoleLine(text: line, isError: true))
+            }
         }
     }
     
@@ -352,7 +368,9 @@ struct ContentView: View {
             Text("Enter the new name for \(viewModel.activeRenameTarget?.name ?? "this item").")
         }
         .onReceive(NotificationCenter.default.publisher(for: Notification.Name("ShowWebPreview"))) { _ in
-            viewModel.isWebPreviewVisible = true
+            if let file = viewModel.openFile, file.url.pathExtension.lowercased() == "html" || file.url.pathExtension.lowercased() == "htm" {
+                viewModel.isWebPreviewVisible = true
+            }
         }
     }
 }
@@ -860,7 +878,8 @@ struct HSplitView<Content: View, Console: View, Preview: View>: View {
                     content()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                     
-                    if isWebPreviewVisible {
+                    let isHTML = fileURL.pathExtension.lowercased() == "html" || fileURL.pathExtension.lowercased() == "htm"
+                    if isWebPreviewVisible && isHTML {
                         Divider()
                             .background(Dracula.border)
                         
@@ -997,7 +1016,8 @@ struct WebPreviewView: UIViewRepresentable {
     
     func makeUIView(context: Context) -> WKWebView {
         let webView = WKWebView()
-        webView.backgroundColor = .white
+        webView.backgroundColor = UIColor(red: 40/255, green: 42/255, blue: 54/255, alpha: 1.0)
+        webView.isOpaque = false
         webView.scrollView.bounces = true
         return webView
     }

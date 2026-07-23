@@ -165,14 +165,18 @@ let btn = document.getElementById('actionBtn');
 let txt = document.getElementById('counter');
 let count = 0;
 
-btn.addEventListener('click', () => {
-    count++;
-    txt.textContent = `Clicks: ${count}`;
-    
-    // Quick micro-interaction color change
-    const colors = ['#50fa7b', '#ff79c6', '#8be9fd', '#ffb86c', '#bd93f9'];
-    btn.style.backgroundColor = colors[count % colors.length];
-});
+if (btn) {
+    btn.addEventListener('click', () => {
+        count++;
+        if (txt) txt.textContent = `Clicks: ${count}`;
+        
+        // Quick micro-interaction color change
+        const colors = ['#50fa7b', '#ff79c6', '#8be9fd', '#ffb86c', '#bd93f9'];
+        btn.style.backgroundColor = colors[count % colors.length];
+    });
+} else {
+    console.log("script.js executed directly in JS console mode.");
+}
 
 console.log("xIDE preview loaded successfully!");
 """
